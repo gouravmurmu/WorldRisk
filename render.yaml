@@ -1,0 +1,40 @@
+# Render Blueprint for the backend API.
+# Deploy: Render dashboard → New → Blueprint → point at this repo.
+# Render auto-detects this file at the repo root. The frontend is deployed
+# separately on Vercel (see DEPLOYMENT.md) — Render's free tier has no
+# first-class Next.js support, and Vercel's is best-in-class for it.
+services:
+  - type: web
+    name: gci-backend
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEMO_MODE
+        value: "true"
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false # paste the Supabase connection string (see DEPLOYMENT.md)
+      - key: GDACS_BASE_URL
+        value: https://www.gdacs.org/gdacsapi/api
+      - key: GDACS_POLL_SECONDS
+        value: "600"
+      - key: GDELT_CLOUD_BASE_URL
+        value: https://api.gdeltcloud.com
+      - key: GDELT_CLOUD_API_KEY
+        sync: false # optional — leave blank to stay in DEMO_MODE
+      - key: GDELT_POLL_SECONDS
+        value: "900"
+      - key: LLM_API_KEY
+        sync: false # optional — leave blank to use the rule-based analyst fallback
+      - key: LLM_MODEL
+        value: claude-sonnet-5
+      - key: FRONTEND_ORIGIN
+        sync: false # your Vercel URL, e.g. https://your-app.vercel.app
+      - key: CACHE_TTL_SECONDS
+        value: "300"
