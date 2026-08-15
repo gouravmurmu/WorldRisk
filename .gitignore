@@ -16,6 +16,7 @@ node_modules/
 out/
 next-env.d.ts
 npm-debug.log*
+*.tsbuildinfo
 
 # Misc
 .DS_Store
