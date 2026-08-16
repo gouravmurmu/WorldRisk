@@ -103,6 +103,9 @@ def _persist_event(
     row.status = ev.status
     row.trend = ev.trend
     row.source_url = ev.source_url
+    row.metrics = ev.metrics
+    row.timeline = ev.timeline or _fallback_timeline(ev)
+    row.article = ev.article or ev.summary
     row.updated_at = datetime.now(timezone.utc)
 
     db.add(row)
@@ -117,6 +120,16 @@ def _persist_event(
                 source_type=src.source_type, credibility_score=src.credibility_score,
             ))
     return row
+
+
+def _fallback_timeline(ev: NormalizedEvent) -> list[dict]:
+    """Minimal 2-step timeline for events whose provider (GDACS/GDELT)
+    doesn't supply one — the demo provider always generates a fuller one."""
+    event_time = ev.event_date or datetime.now(timezone.utc)
+    return [
+        {"time": event_time.isoformat(), "label": "Event occurred"},
+        {"time": datetime.now(timezone.utc).isoformat(), "label": "Detected and added to dashboard"},
+    ]
 
 
 def _write_snapshots(db: Session, events: list[CrisisEvent]) -> None:

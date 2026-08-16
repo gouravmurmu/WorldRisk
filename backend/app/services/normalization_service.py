@@ -109,6 +109,13 @@ class NormalizedEvent:
     source_url: str = ""
     sources: list[NormalizedSource] = field(default_factory=list)
 
+    # optional richer detail — only the demo provider populates these today;
+    # GDACS/GDELT-sourced events fall back to empty metrics/timeline and the
+    # existing `summary` in place of `article` (see pipeline._persist_event)
+    metrics: dict = field(default_factory=dict)
+    timeline: list[dict] = field(default_factory=list)
+    article: str = ""
+
     def with_region(self) -> dict:
         region, continent = region_for(self.country_code)
         return {

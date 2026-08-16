@@ -19,6 +19,7 @@ def _to_event_out(e) -> EventOut:
             "risk_components", "event_date", "detected_at", "updated_at",
             "population_exposure", "economic_exposure", "geographic_spread",
             "escalation_score", "has_fatalities", "fatalities", "status", "trend", "source_url",
+            "metrics", "timeline", "article",
         ]},
         severity_level=risk_service.severity_level(e.risk_score).value,
     )

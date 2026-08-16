@@ -61,6 +61,15 @@ export interface EventOut extends EventListItem {
   has_fatalities: boolean;
   fatalities: number;
   source_url: string;
+
+  metrics: Record<string, number>;
+  timeline: TimelineEntry[];
+  article: string;
+}
+
+export interface TimelineEntry {
+  time: string;
+  label: string;
 }
 
 export interface EventSourceOut {

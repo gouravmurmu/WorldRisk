@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { EventList } from "@/components/events/EventList";
 import { EventDrawer } from "@/components/map/EventDrawer";
+import { ScopedTrendChart } from "@/components/charts/ScopedTrendChart";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { SeverityBadge } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -105,6 +106,8 @@ export default function CountryDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {risk && <ScopedTrendChart country={risk.country_code} />}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="relative h-[420px]">

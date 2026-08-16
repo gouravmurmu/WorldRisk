@@ -60,7 +60,8 @@ export const api = {
     request<import("./types").Story[]>(`/api/stories${qs(params)}`),
 
   history: (days = 30) => request<any>(`/api/history${qs({ days })}`),
-  historyTrends: (metric = "global", days = 90) => request<{ timestamp: string; value: number }[]>(`/api/history/trends${qs({ metric, days })}`),
+  historyTrends: (metric = "global", days = 90, scope: { region?: string; country?: string } = {}) =>
+    request<{ timestamp: string; value: number }[]>(`/api/history/trends${qs({ metric, days, ...scope })}`),
 
   simulateScenario: (params: import("./types").ScenarioParameters) =>
     request<import("./types").ScenarioResult>("/api/scenarios/simulate", {

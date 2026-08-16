@@ -21,12 +21,22 @@ def get_db():
         db.close()
 
 
-def init_db() -> None:
-    """Create the PostGIS extension (if missing) and all tables.
+# Columns added to a model after it was already deployed somewhere.
+# create_all() only creates missing *tables*, never adds columns to a table
+# that already exists — so a deployed database needs each of these patched
+# in by hand. Kept as a flat, append-only list instead of pulling in Alembic
+# (see README "Architecture Decisions"): every entry is an idempotent
+# `ADD COLUMN IF NOT EXISTS`, safe to re-run on every boot.
+_COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("crisis_events", "metrics", "JSON DEFAULT '{}'::json"),
+    ("crisis_events", "timeline", "JSON DEFAULT '[]'::json"),
+    ("crisis_events", "article", "TEXT DEFAULT ''"),
+]
 
-    v1 uses create_all instead of Alembic migrations, mirroring a
-    single-instance app with a stable, evolving schema. Add Alembic before
-    this ever needs a real production migration path.
+
+def init_db() -> None:
+    """Create the PostGIS extension (if missing), all tables, and patch in
+    any columns added after this database was first created.
     """
     from sqlalchemy import text
 
@@ -39,3 +49,13 @@ def init_db() -> None:
             # Non-Postgres or restricted DB (e.g. SQLite in tests) — skip PostGIS.
             pass
     Base.metadata.create_all(bind=engine)
+
+    for table, column, ddl in _COLUMN_MIGRATIONS:
+        # Each statement gets its own transaction: a failure on one (e.g.
+        # unsupported syntax on a non-Postgres backend) must not abort the
+        # whole batch and skip patching the rest.
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}"))
+        except Exception:
+            pass

@@ -50,6 +50,17 @@ class CrisisEvent(Base):
     # the exact inputs that produced risk_score without recomputing
     risk_components: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    # category-specific structured facts (e.g. {"magnitude": 6.8, "depth_km": 12}
+    # for an earthquake, {"wind_speed_kmh": 165} for a cyclone) — shape varies
+    # by event_type, rendered as a metrics grid on the event detail page
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    # ordered list of {"time": iso8601, "label": str} investigation steps
+    timeline: Mapped[list] = mapped_column(JSON, default=list)
+
+    # short multi-sentence narrative, longer/more readable than `summary`
+    article: Mapped[str] = mapped_column(Text, default="")
+
     event_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

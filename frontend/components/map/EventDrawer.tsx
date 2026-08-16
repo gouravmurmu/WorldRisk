@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { api } from "@/lib/api";
 import type { EventOut } from "@/lib/types";
-import { CATEGORY_COLOR, CATEGORY_LABEL, SEVERITY_COLOR, trendArrow } from "@/lib/utils";
+import { CATEGORY_COLOR, CATEGORY_LABEL, SEVERITY_COLOR, trendArrow, metricLabel, formatMetricValue } from "@/lib/utils";
 import { SeverityBadge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -80,6 +80,16 @@ export function EventDrawer({ eventId, onClose }: { eventId: string | null; onCl
                   {trendArrow(event.trend)} {event.trend}
                 </span>
               </div>
+
+              {Object.keys(event.metrics).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(event.metrics).map(([key, value]) => (
+                    <span key={key} className="rounded border border-border bg-panel px-1.5 py-0.5 font-mono text-[10px] text-gray-300">
+                      {metricLabel(key)}: {formatMetricValue(key, value)}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <p className="text-[12px] leading-relaxed text-gray-400">{event.summary}</p>
 

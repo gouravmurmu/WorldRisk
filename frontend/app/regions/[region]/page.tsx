@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { GlobalMap } from "@/components/map/GlobalMap";
 import { EventList } from "@/components/events/EventList";
 import { EventDrawer } from "@/components/map/EventDrawer";
+import { ScopedTrendChart } from "@/components/charts/ScopedTrendChart";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { SeverityBadge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -78,6 +79,8 @@ export default function RegionDetailPage() {
             <EventList events={events} loading={loading} onSelect={setSelectedEventId} />
           </div>
         </div>
+
+        {regionName && <ScopedTrendChart region={regionName} />}
 
         <Card>
           <CardHeader><CardTitle>Category Mix</CardTitle></CardHeader>

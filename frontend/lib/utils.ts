@@ -63,6 +63,39 @@ export function formatUTCTime(iso: string | null | undefined): string {
   return `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")} UTC`;
 }
 
+const METRIC_LABELS: Record<string, string> = {
+  magnitude: "Magnitude", depth_km: "Depth (km)", wave_height_m: "Wave Height (m)",
+  ash_altitude_km: "Ash Altitude (km)", water_level_m: "Water Level (m)",
+  displaced_estimate: "Displaced (est.)", area_burned_hectares: "Area Burned (ha)",
+  containment_pct: "Containment", blocked_routes: "Routes Blocked",
+  wind_speed_kmh: "Wind Speed (km/h)", pressure_hpa: "Pressure (hPa)",
+  rainfall_mm_24h: "Rainfall, 24h (mm)", peak_temp_c: "Peak Temp (°C)",
+  duration_months: "Duration (months)", wind_gust_kmh: "Wind Gust (km/h)",
+  people_in_need: "People in Need", systems_affected: "Systems Affected",
+  organizations_affected: "Organizations Affected", facilities_targeted: "Facilities Targeted",
+  users_affected_millions: "Users Affected (M)", duration_hours: "Duration (hours)",
+  households_affected: "Households Affected", routes_affected: "Routes Affected",
+  delay_hours: "Delay (hours)", vessels_delayed: "Vessels Delayed", injuries: "Injuries",
+  vessels_affected: "Vessels Affected", delay_days: "Delay (days)",
+  cargo_volume_impacted_pct: "Cargo Volume Impacted", transit_delay_days: "Transit Delay (days)",
+  shipments_delayed: "Shipments Delayed", index_change_pct: "Index Change",
+  price_change_pct: "Price Change", currency_change_pct: "Currency Change",
+  casualties_estimate: "Casualties (est.)", forces_deployed_estimate: "Forces Deployed (est.)",
+  protest_size_estimate: "Protest Size (est.)", cases_reported: "Cases Reported",
+  case_fatality_rate_pct: "Case Fatality Rate", affected_population: "Affected Population",
+};
+
+export function metricLabel(key: string): string {
+  return METRIC_LABELS[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function formatMetricValue(key: string, value: number): string {
+  if (key.endsWith("_pct")) {
+    return key.endsWith("change_pct") ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%` : `${value.toFixed(0)}%`;
+  }
+  return value.toLocaleString();
+}
+
 export function trendArrow(trend: string): string {
   if (trend === "ESCALATING") return "↑";
   if (trend === "DE_ESCALATING") return "↓";

@@ -8,13 +8,15 @@ import { AppShell } from "@/components/layout/AppShell";
 import { GlobalMap } from "@/components/map/GlobalMap";
 import { RiskBreakdown } from "@/components/events/RiskBreakdown";
 import { SourceList } from "@/components/events/SourceList";
+import { MetricsGrid } from "@/components/events/MetricsGrid";
+import { EventTimeline } from "@/components/events/EventTimeline";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { SeverityBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { api } from "@/lib/api";
 import type { EventOut, EventRelationshipOut, EventSourceOut, IntelligenceResponse } from "@/lib/types";
-import { CATEGORY_COLOR, CATEGORY_LABEL, SEVERITY_COLOR, formatUTCTime, trendArrow } from "@/lib/utils";
+import { CATEGORY_COLOR, CATEGORY_LABEL, SEVERITY_COLOR, trendArrow } from "@/lib/utils";
 
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
@@ -115,6 +117,13 @@ export default function EventDetailPage() {
               <CardContent className="text-[13px] leading-relaxed text-gray-300">{event.summary}</CardContent>
             </Card>
 
+            {event.article && event.article !== event.summary && (
+              <Card>
+                <CardHeader><CardTitle>Detailed Report</CardTitle></CardHeader>
+                <CardContent className="text-[13px] leading-relaxed text-gray-300">{event.article}</CardContent>
+              </Card>
+            )}
+
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <MetricTile label="Population Exposure" value={event.population_exposure} />
               <MetricTile label="Economic Exposure" value={event.economic_exposure} />
@@ -122,14 +131,9 @@ export default function EventDetailPage() {
               <MetricTile label="Geographic Spread" value={event.geographic_spread} />
             </div>
 
-            <Card>
-              <CardHeader><CardTitle>Timeline</CardTitle></CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <TimelineRow time={formatUTCTime(event.event_date)} label="Event occurred" />
-                <TimelineRow time={formatUTCTime(event.detected_at)} label="Detected by ingestion pipeline" />
-                <TimelineRow time={formatUTCTime(event.updated_at)} label="Last updated (severity / sources / impact)" />
-              </CardContent>
-            </Card>
+            <MetricsGrid metrics={event.metrics} />
+
+            <EventTimeline steps={event.timeline} />
 
             <Card>
               <CardHeader>
@@ -240,14 +244,5 @@ function MetricTile({ label, value }: { label: string; value: number }) {
       <div className="font-mono text-[9px] uppercase tracking-widest text-subtle">{label}</div>
       <div className="mt-1 font-mono text-lg text-gray-100">{Math.round(value)}</div>
     </Card>
-  );
-}
-
-function TimelineRow({ time, label }: { time: string; label: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="w-20 shrink-0 font-mono text-[11px] text-accent">{time}</span>
-      <span className="text-[13px] text-gray-300">{label}</span>
-    </div>
   );
 }

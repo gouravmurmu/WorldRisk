@@ -141,6 +141,143 @@ TITLE_TEMPLATES = {
     "Public Health Emergency": "Public health emergency declared in {country}",
 }
 
+# Per-event-type structured metrics: (key, low, high, decimal_places).
+# Values are sampled with a bias toward the high end for higher-severity
+# events (see _generate_metrics), giving a plausible category-appropriate
+# detail panel — e.g. magnitude/depth for an earthquake, wind speed for a
+# cyclone — instead of every event showing the same generic fields.
+METRIC_SPECS: dict[str, list[tuple[str, float, float, int]]] = {
+    "Earthquake": [("magnitude", 4.5, 8.2, 1), ("depth_km", 2, 120, 0)],
+    "Tsunami": [("wave_height_m", 0.5, 8.0, 1)],
+    "Volcano": [("ash_altitude_km", 1, 15, 0)],
+    "Flood": [("water_level_m", 0.5, 6.0, 1), ("displaced_estimate", 500, 250000, 0)],
+    "Wildfire": [("area_burned_hectares", 100, 80000, 0), ("containment_pct", 5, 90, 0)],
+    "Landslide": [("blocked_routes", 1, 6, 0)],
+    "Cyclone": [("wind_speed_kmh", 90, 250, 0), ("pressure_hpa", 900, 990, 0)],
+    "Hurricane": [("wind_speed_kmh", 120, 280, 0), ("pressure_hpa", 900, 980, 0)],
+    "Extreme Rain": [("rainfall_mm_24h", 80, 500, 0)],
+    "Heatwave": [("peak_temp_c", 38, 50, 1)],
+    "Drought": [("duration_months", 2, 24, 0)],
+    "Severe Storm": [("wind_gust_kmh", 60, 150, 0)],
+    "Displacement": [("displaced_estimate", 1000, 500000, 0)],
+    "Food Crisis": [("people_in_need", 5000, 2000000, 0)],
+    "Humanitarian Emergency": [("people_in_need", 5000, 3000000, 0)],
+    "Cyber Attack": [("systems_affected", 1, 200, 0)],
+    "Ransomware": [("organizations_affected", 1, 40, 0)],
+    "Infrastructure Attack": [("facilities_targeted", 1, 12, 0)],
+    "Internet Outage": [("users_affected_millions", 0.01, 8.0, 2), ("duration_hours", 0.5, 48, 1)],
+    "Power Failure": [("households_affected", 500, 900000, 0), ("duration_hours", 0.5, 36, 1)],
+    "Transport Disruption": [("routes_affected", 1, 15, 0), ("delay_hours", 1, 48, 0)],
+    "Port Disruption": [("vessels_delayed", 1, 40, 0)],
+    "Industrial Accident": [("injuries", 0, 60, 0)],
+    "Shipping Disruption": [("vessels_affected", 1, 60, 0), ("delay_days", 1, 14, 0)],
+    "Port Closure": [("cargo_volume_impacted_pct", 5, 90, 0)],
+    "Canal Disruption": [("transit_delay_days", 1, 21, 0)],
+    "Logistics Disruption": [("shipments_delayed", 10, 5000, 0)],
+    "Market Shock": [("index_change_pct", -12, -0.5, 1)],
+    "Commodity Shock": [("price_change_pct", -20, 25, 1)],
+    "Oil Shock": [("price_change_pct", -15, 30, 1)],
+    "Currency Crisis": [("currency_change_pct", -30, -2, 1)],
+    "Armed Conflict": [("casualties_estimate", 1, 500, 0)],
+    "Military Activity": [("forces_deployed_estimate", 100, 20000, 0)],
+    "Political Unrest": [("protest_size_estimate", 200, 100000, 0)],
+    "Protest": [("protest_size_estimate", 200, 150000, 0)],
+    "Terrorism": [("casualties_estimate", 0, 100, 0)],
+    "Border Tension": [("forces_deployed_estimate", 100, 15000, 0)],
+    "Disease Outbreak": [("cases_reported", 5, 50000, 0), ("case_fatality_rate_pct", 0.1, 8.0, 1)],
+    "Public Health Emergency": [("affected_population", 1000, 2000000, 0)],
+}
+
+METRIC_LABELS = {
+    "magnitude": "Magnitude", "depth_km": "Depth (km)", "wave_height_m": "Wave Height (m)",
+    "ash_altitude_km": "Ash Altitude (km)", "water_level_m": "Water Level (m)",
+    "displaced_estimate": "Displaced (est.)", "area_burned_hectares": "Area Burned (ha)",
+    "containment_pct": "Containment", "blocked_routes": "Routes Blocked",
+    "wind_speed_kmh": "Wind Speed (km/h)", "pressure_hpa": "Pressure (hPa)",
+    "rainfall_mm_24h": "Rainfall, 24h (mm)", "peak_temp_c": "Peak Temp (°C)",
+    "duration_months": "Duration (months)", "wind_gust_kmh": "Wind Gust (km/h)",
+    "people_in_need": "People in Need", "systems_affected": "Systems Affected",
+    "organizations_affected": "Organizations Affected", "facilities_targeted": "Facilities Targeted",
+    "users_affected_millions": "Users Affected (M)", "duration_hours": "Duration (hours)",
+    "households_affected": "Households Affected", "routes_affected": "Routes Affected",
+    "delay_hours": "Delay (hours)", "vessels_delayed": "Vessels Delayed", "injuries": "Injuries",
+    "vessels_affected": "Vessels Affected", "delay_days": "Delay (days)",
+    "cargo_volume_impacted_pct": "Cargo Volume Impacted", "transit_delay_days": "Transit Delay (days)",
+    "shipments_delayed": "Shipments Delayed", "index_change_pct": "Index Change",
+    "price_change_pct": "Price Change", "currency_change_pct": "Currency Change",
+    "casualties_estimate": "Casualties (est.)", "forces_deployed_estimate": "Forces Deployed (est.)",
+    "protest_size_estimate": "Protest Size (est.)", "cases_reported": "Cases Reported",
+    "case_fatality_rate_pct": "Case Fatality Rate", "affected_population": "Affected Population",
+}
+
+
+def _generate_metrics(event_type: str, severity: float, rng: random.Random) -> dict:
+    specs = METRIC_SPECS.get(event_type, [])
+    severity_frac = max(0.15, min(1.0, severity / 100))
+    metrics: dict[str, float] = {}
+    for key, low, high, decimals in specs:
+        span = high - low
+        center = low + span * severity_frac
+        spread = span * 0.2
+        value = rng.uniform(max(low, center - spread), min(high, center + spread))
+        metrics[key] = round(value, decimals) if decimals else round(value)
+    return metrics
+
+
+def _generate_timeline(rng: random.Random, event_date: datetime, status: str, trend: str, now: datetime) -> list[dict]:
+    steps: list[tuple[str, datetime]] = [("Event detected", event_date)]
+    t = event_date + timedelta(hours=rng.uniform(1, 6))
+    steps.append(("Initial severity assessment completed", t))
+    if rng.random() < 0.7:
+        t = t + timedelta(hours=rng.uniform(2, 20))
+        steps.append(("Additional source corroborated the report", t))
+    if trend == "ESCALATING":
+        t = t + timedelta(hours=rng.uniform(4, 30))
+        steps.append(("Severity upgraded following new reports", t))
+    t = t + timedelta(hours=rng.uniform(2, 24))
+    steps.append(("Impact estimate updated", t))
+    if status == "RESOLVED":
+        t = t + timedelta(hours=rng.uniform(12, 72))
+        steps.append(("Situation stabilized; marked resolved", t))
+    elif status == "MONITORING":
+        t = t + timedelta(hours=rng.uniform(6, 48))
+        steps.append(("Downgraded to monitoring status", t))
+    return [{"time": min(time, now).isoformat(), "label": label} for label, time in steps if time <= now + timedelta(hours=1)]
+
+
+def _format_metric(key: str, value: float) -> str:
+    label = METRIC_LABELS.get(key, key.replace("_", " ").title())
+    if key.endswith("_pct"):
+        return f"{label} {value:+.1f}%" if value < 0 or key.endswith("change_pct") else f"{label} {value:.0f}%"
+    return f"{label} {value:g}"
+
+
+def _generate_article(
+    event_type: str, country: str, severity_raw: float, metrics: dict,
+    trend: str, has_fatalities: bool, fatalities: int, n_sources: int,
+) -> str:
+    severity_word = (
+        "severe" if severity_raw > 75 else
+        "significant" if severity_raw > 50 else
+        "moderate" if severity_raw > 25 else "limited"
+    )
+    trend_phrase = {
+        "ESCALATING": "Analysts note the situation is escalating and warrants close monitoring.",
+        "DE_ESCALATING": "Conditions appear to be gradually improving.",
+        "STABLE": "The situation remains largely stable at this time.",
+    }[trend]
+
+    metric_bits = [_format_metric(k, v) for k, v in metrics.items()]
+    metric_sentence = f" Reported figures: {', '.join(metric_bits)}." if metric_bits else ""
+    fatality_sentence = f" At least {fatalities} fatalities have been reported." if has_fatalities else ""
+    article_word = "An" if event_type[0].lower() in "aeiou" else "A"
+
+    return (
+        f"{article_word} {event_type.lower()} has been reported in {country}, assessed as {severity_word} impact "
+        f"based on {n_sources} corroborating source(s).{metric_sentence}{fatality_sentence} {trend_phrase} "
+        f"This assessment will update automatically as new source data is ingested."
+    )
+
 
 def _weighted_category(rng: random.Random) -> EventCategory:
     categories = list(CATEGORY_WEIGHTS.keys())
@@ -218,6 +355,13 @@ def generate_events(count: int = 140) -> list[NormalizedEvent]:
             for s in range(n_sources)
         ]
 
+        metrics = _generate_metrics(event_type, severity_raw, rng)
+        timeline = _generate_timeline(rng, event_date, status, trend, now)
+        article = _generate_article(
+            event_type, country_name(cc), severity_raw, metrics,
+            trend, has_fatalities, fatalities, n_sources,
+        )
+
         events.append(
             NormalizedEvent(
                 source="DEMO",
@@ -247,6 +391,9 @@ def generate_events(count: int = 140) -> list[NormalizedEvent]:
                 trend=trend,
                 source_url=sources[0].source_url if sources else "",
                 sources=sources,
+                metrics=metrics,
+                timeline=timeline,
+                article=article,
             )
         )
 

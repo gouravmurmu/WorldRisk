@@ -61,7 +61,9 @@ def history_overview(days: int = Query(30, le=365), db: Session = Depends(get_db
 def history_trends(
     metric: str = Query("global", pattern="^(global|geopolitical|natural_disaster|weather|cyber|economic|infrastructure|health|humanitarian)$"),
     days: int = Query(90, le=365),
+    region: str | None = None,
+    country: str | None = None,
     db: Session = Depends(get_db),
 ):
     field = TREND_FIELDS[metric]
-    return query_service.historical_trend(db, category_key=field, days=days)
+    return query_service.historical_trend(db, category_key=field, days=days, region=region, country=country)

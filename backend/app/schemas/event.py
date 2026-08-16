@@ -15,6 +15,11 @@ class RiskComponents(BaseModel):
     estimated_fields: list[str] = []
 
 
+class TimelineEntry(BaseModel):
+    time: datetime
+    label: str
+
+
 class EventSourceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,6 +75,10 @@ class EventOut(BaseModel):
     trend: str
 
     source_url: str
+
+    metrics: dict = {}
+    timeline: list[TimelineEntry] = []
+    article: str = ""
 
 
 class EventListItem(BaseModel):

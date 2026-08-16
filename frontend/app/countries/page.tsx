@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ArrowLeftRight } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { CountrySearch } from "@/components/countries/CountrySearch";
 import { CountryRiskCard } from "@/components/countries/CountryRiskCard";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 
 interface CountryRow {
@@ -30,9 +33,14 @@ export default function CountriesPage() {
   return (
     <AppShell>
       <div className="mx-auto flex max-w-5xl flex-col gap-4 p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold text-gray-100">Country Intelligence</h1>
-          <CountrySearch value={query} onChange={setQuery} />
+          <div className="flex items-center gap-2">
+            <CountrySearch value={query} onChange={setQuery} />
+            <Link href="/countries/compare">
+              <Button variant="default"><ArrowLeftRight size={12} /> Compare</Button>
+            </Link>
+          </div>
         </div>
 
         {countries === null ? (

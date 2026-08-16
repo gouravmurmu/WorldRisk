@@ -175,15 +175,32 @@ def top_developments(db: Session, limit: int = 6) -> list[dict]:
     return out
 
 
-def historical_trend(db: Session, category_key: str = "global_risk", days: int = 90) -> list[dict]:
+def historical_trend(
+    db: Session,
+    category_key: str = "global_risk",
+    days: int = 90,
+    region: str | None = None,
+    country: str | None = None,
+) -> list[dict]:
+    """Global scope supports every per-category metric (geopolitical_risk,
+    weather_risk, etc). Region/country-scoped snapshots only ever carry the
+    single aggregate score (see ingestion/pipeline._write_snapshots), so a
+    scoped request always returns `global_risk` regardless of category_key.
+    """
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    rows = (
-        db.query(RiskSnapshot)
-        .filter(RiskSnapshot.timestamp >= since, RiskSnapshot.region == "", RiskSnapshot.country == "")
-        .order_by(RiskSnapshot.timestamp.asc())
-        .all()
-    )
-    field = category_key if hasattr(RiskSnapshot, category_key) else "global_risk"
+    q = db.query(RiskSnapshot).filter(RiskSnapshot.timestamp >= since)
+
+    if region:
+        q = q.filter(RiskSnapshot.region == region, RiskSnapshot.country == "")
+        field = "global_risk"
+    elif country:
+        q = q.filter(RiskSnapshot.country == country.upper(), RiskSnapshot.region == "")
+        field = "global_risk"
+    else:
+        q = q.filter(RiskSnapshot.region == "", RiskSnapshot.country == "")
+        field = category_key if hasattr(RiskSnapshot, category_key) else "global_risk"
+
+    rows = q.order_by(RiskSnapshot.timestamp.asc()).all()
     return [{"timestamp": r.timestamp, "value": getattr(r, field)} for r in rows]
 
 
