@@ -75,6 +75,30 @@ HOTSPOT_COUNTRIES = ["UA", "IL", "SY", "SO", "MM", "SD", "PH", "ID", "IR", "YE"]
 # of leaving coverage entirely to chance in a fixed-seed random draw.
 SHOWCASE_COUNTRIES = ["IN", "US", "CN", "BR", "NG", "DE", "GB", "JP", "ZA", "AU", "MX", "EG"]
 
+# Max +/- degrees to jitter an event's coordinates away from its country's
+# center point, scaled to roughly match real geographic extent. A flat
+# jitter for every country (e.g. +/-4 degrees, ~440km) looks fine for a
+# continent-sized country like the US but reliably pushes small/narrow
+# countries' events into their neighbors — e.g. a Bangladesh event landing
+# in Nepal, ~450km away. Unlisted countries fall back to MEDIUM.
+LARGE_JITTER_DEGREES = 4.0
+MEDIUM_JITTER_DEGREES = 1.2
+SMALL_JITTER_DEGREES = 0.5
+
+LARGE_COUNTRIES = {"US", "CA", "BR", "CN", "AU", "IN", "AR", "MX", "KZ", "DZ"}
+SMALL_COUNTRIES = {
+    "BD", "NP", "LK", "IL", "PS", "LB", "JO", "GR", "PT", "NL",
+    "FJ", "TW", "KP", "KR", "SY", "MZ", "MY",
+}
+
+
+def _jitter_degrees(country_code: str) -> float:
+    if country_code in LARGE_COUNTRIES:
+        return LARGE_JITTER_DEGREES
+    if country_code in SMALL_COUNTRIES:
+        return SMALL_JITTER_DEGREES
+    return MEDIUM_JITTER_DEGREES
+
 TITLE_TEMPLATES = {
     "Armed Conflict": "Clashes reported near {country} border region",
     "Military Activity": "Military buildup observed in {country}",
@@ -150,8 +174,9 @@ def generate_events(count: int = 140) -> list[NormalizedEvent]:
         else:
             cc = rng.choice(countries)
         base_lat, base_lon = COUNTRY_COORDS[cc]
-        lat = max(-85, min(85, base_lat + rng.uniform(-4, 4)))
-        lon = max(-179, min(179, base_lon + rng.uniform(-4, 4)))
+        jitter = _jitter_degrees(cc)
+        lat = max(-85, min(85, base_lat + rng.uniform(-jitter, jitter)))
+        lon = max(-179, min(179, base_lon + rng.uniform(-jitter, jitter)))
 
         # recency-biased age in days (more recent events more likely)
         age_days = rng.betavariate(1.6, 4.5) * 90
