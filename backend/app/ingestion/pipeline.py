@@ -8,6 +8,7 @@ deterministic demo dataset so the dashboard is never empty.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from geoalchemy2 import WKTElement
@@ -43,13 +44,20 @@ async def fetch_all_events() -> tuple[list[NormalizedEvent], str]:
     return combined, "LIVE"
 
 
-def _persist_event(db: Session, ev: NormalizedEvent) -> CrisisEvent:
+def _persist_event(
+    db: Session, ev: NormalizedEvent, existing_by_key: dict[tuple[str, str], CrisisEvent]
+) -> CrisisEvent:
+    """Upsert one event using an in-memory map of already-persisted rows.
+
+    Looking up (and later flushing) per event costs one DB round trip each —
+    fine on localhost, painfully slow once the app and database are in
+    different regions (each round trip pays full network latency). Batching
+    the existing-row lookup once per cycle, and assigning ids client-side
+    instead of relying on a flush to populate them, cuts a 140-event cycle
+    from ~280 round trips down to effectively none until the final commit.
+    """
     region_info = ev.with_region()
-    existing = (
-        db.query(CrisisEvent)
-        .filter(CrisisEvent.source == ev.source, CrisisEvent.source_event_id == ev.source_event_id)
-        .one_or_none()
-    )
+    existing = existing_by_key.get((ev.source, ev.source_event_id))
 
     estimated_fields = []
     if not ev.sources:
@@ -67,7 +75,7 @@ def _persist_event(db: Session, ev: NormalizedEvent) -> CrisisEvent:
     )
     risk_score = risk_service.compute_score(components)
 
-    row = existing or CrisisEvent(source=ev.source, source_event_id=ev.source_event_id)
+    row = existing or CrisisEvent(id=str(uuid.uuid4()), source=ev.source, source_event_id=ev.source_event_id)
     row.event_type = ev.event_type
     row.event_category = ev.event_category.value
     row.title = ev.title
@@ -98,7 +106,8 @@ def _persist_event(db: Session, ev: NormalizedEvent) -> CrisisEvent:
     row.updated_at = datetime.now(timezone.utc)
 
     db.add(row)
-    db.flush()  # ensure row.id is populated for source rows
+    # row.id was assigned client-side above (not a flush-time default), so
+    # it's already available for the EventSource rows without a round trip.
 
     if not existing:
         for src in ev.sources:
@@ -131,7 +140,19 @@ def run_ingestion_cycle_sync() -> dict:
     normalized, mode = asyncio.run(fetch_all_events())
     db = SessionLocal()
     try:
-        rows = [_persist_event(db, ev) for ev in normalized]
+        keys = {(ev.source, ev.source_event_id) for ev in normalized}
+        existing_rows = (
+            db.query(CrisisEvent)
+            .filter(CrisisEvent.source.in_({k[0] for k in keys}))
+            .all()
+        )
+        existing_by_key = {
+            (row.source, row.source_event_id): row
+            for row in existing_rows
+            if (row.source, row.source_event_id) in keys
+        }
+
+        rows = [_persist_event(db, ev, existing_by_key) for ev in normalized]
         db.flush()
 
         db.query(EventRelationship).delete()
