@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from geoalchemy2 import WKTElement
 from sqlalchemy.orm import Session
@@ -147,6 +147,39 @@ def _write_snapshots(db: Session, events: list[CrisisEvent]) -> None:
         db.add(RiskSnapshot(timestamp=now, global_risk=breakdown["national_risk"], country=cc))
 
 
+def _backfill_historical_snapshots(db: Session, events: list[CrisisEvent], days: int = 90) -> None:
+    """Demo-mode only: reconstructs a *real* (not fabricated) global risk
+    trend for the History tab by replaying the same weighted_aggregate math
+    against the subset of events that had already occurred as of each past
+    day. Without this, a freshly deployed instance only has snapshots
+    accumulating from deploy time forward — a 90-day trend chart on a
+    demo dataset that already spans 90 days of event history would
+    otherwise sit almost empty for weeks. Idempotent: skips once enough
+    real snapshots have accumulated from the scheduler's own cadence.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=6)
+    existing_count = (
+        db.query(RiskSnapshot)
+        .filter(RiskSnapshot.region == "", RiskSnapshot.country == "", RiskSnapshot.timestamp < cutoff)
+        .count()
+    )
+    if existing_count >= days // 2:
+        return
+
+    db.query(RiskSnapshot).filter(
+        RiskSnapshot.region == "", RiskSnapshot.country == "", RiskSnapshot.timestamp < cutoff
+    ).delete()
+
+    for day_offset in range(days, 0, -1):
+        day = now - timedelta(days=day_offset)
+        subset = [e for e in events if e.event_date <= day]
+        if not subset:
+            continue
+        snapshot = risk_service.global_risk_snapshot(subset, day)
+        db.add(RiskSnapshot(timestamp=day, **snapshot))
+
+
 def run_ingestion_cycle_sync() -> dict:
     import asyncio
 
@@ -174,6 +207,8 @@ def run_ingestion_cycle_sync() -> dict:
             db.add(EventRelationship(**rel))
 
         _write_snapshots(db, rows)
+        if get_settings().demo_mode:
+            _backfill_historical_snapshots(db, rows)
         db.commit()
 
         breakdown: dict[str, int] = {}

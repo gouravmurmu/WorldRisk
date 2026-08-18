@@ -23,7 +23,9 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.schemas.intelligence import EvidenceItem, ImpactRow, IntelligenceResponse
 from app.schemas.scenario import ScenarioParameters
-from app.services import query_service, scenario_service
+from app.services import query_service, risk_service, scenario_service
+from app.services.normalization_service import COUNTRY_NAMES
+from app.taxonomy import REGIONS, EventCategory
 
 logger = logging.getLogger("gci.intelligence")
 
@@ -186,9 +188,164 @@ def _dispatch_tool(db: Session, name: str, tool_input: dict) -> dict:
     return {"error": f"unknown_tool:{name}"}
 
 
-def _rule_based_fallback(db: Session, question: str) -> IntelligenceResponse:
-    """No LLM key configured — build a grounded, if less fluent, assessment
-    directly from the query layer instead of refusing to answer."""
+# Keyword -> one or more taxonomy categories. Matched as a case-insensitive
+# substring against the question, so "risks to global energy supply" hits
+# both ECONOMIC and SUPPLY_CHAIN.
+_CATEGORY_KEYWORDS: dict[str, list[EventCategory]] = {
+    "energy": [EventCategory.ECONOMIC, EventCategory.SUPPLY_CHAIN],
+    "oil": [EventCategory.ECONOMIC, EventCategory.SUPPLY_CHAIN],
+    "fuel": [EventCategory.ECONOMIC, EventCategory.SUPPLY_CHAIN],
+    "shipping": [EventCategory.SUPPLY_CHAIN],
+    "port": [EventCategory.SUPPLY_CHAIN],
+    "supply chain": [EventCategory.SUPPLY_CHAIN],
+    "logistics": [EventCategory.SUPPLY_CHAIN],
+    "cyber": [EventCategory.CYBER],
+    "hack": [EventCategory.CYBER],
+    "ransomware": [EventCategory.CYBER],
+    "health": [EventCategory.HEALTH],
+    "disease": [EventCategory.HEALTH],
+    "outbreak": [EventCategory.HEALTH],
+    "pandemic": [EventCategory.HEALTH],
+    "conflict": [EventCategory.GEOPOLITICAL],
+    "war": [EventCategory.GEOPOLITICAL],
+    "military": [EventCategory.GEOPOLITICAL],
+    "geopolitic": [EventCategory.GEOPOLITICAL],
+    "protest": [EventCategory.GEOPOLITICAL],
+    "unrest": [EventCategory.GEOPOLITICAL],
+    "terror": [EventCategory.GEOPOLITICAL],
+    "weather": [EventCategory.WEATHER],
+    "storm": [EventCategory.WEATHER],
+    "cyclone": [EventCategory.WEATHER],
+    "hurricane": [EventCategory.WEATHER],
+    "flood": [EventCategory.NATURAL_DISASTER],
+    "earthquake": [EventCategory.NATURAL_DISASTER],
+    "volcano": [EventCategory.NATURAL_DISASTER],
+    "wildfire": [EventCategory.NATURAL_DISASTER],
+    "tsunami": [EventCategory.NATURAL_DISASTER],
+    "humanitarian": [EventCategory.HUMANITARIAN],
+    "displacement": [EventCategory.HUMANITARIAN],
+    "refugee": [EventCategory.HUMANITARIAN],
+    "famine": [EventCategory.HUMANITARIAN],
+    "infrastructure": [EventCategory.INFRASTRUCTURE],
+    "power grid": [EventCategory.INFRASTRUCTURE],
+    "power outage": [EventCategory.INFRASTRUCTURE],
+    "economic": [EventCategory.ECONOMIC],
+    "market": [EventCategory.ECONOMIC],
+    "currency": [EventCategory.ECONOMIC],
+    "inflation": [EventCategory.ECONOMIC],
+}
+
+# Longest country name first so "South Korea" matches before a shorter,
+# accidental substring would.
+_COUNTRY_NAME_TO_CODE = dict(
+    sorted(((name.lower(), code) for code, name in COUNTRY_NAMES.items()), key=lambda kv: -len(kv[0]))
+)
+
+
+def _detect_scope(question: str) -> dict:
+    q = question.lower()
+    region = next((r for r in REGIONS if r.lower() in q), None)
+    country_code = next((code for name, code in _COUNTRY_NAME_TO_CODE.items() if name in q), None)
+    categories: list[EventCategory] = []
+    for keyword, cats in _CATEGORY_KEYWORDS.items():
+        if keyword in q:
+            for cat in cats:
+                if cat not in categories:
+                    categories.append(cat)
+    return {"region": region, "country_code": country_code, "categories": categories}
+
+
+def _drivers_and_evidence(events: list, limit: int = 3) -> tuple[list[str], list[EvidenceItem]]:
+    top = sorted(events, key=lambda e: e.risk_score, reverse=True)[:limit]
+    drivers = [f"{e.title} ({e.country}) — risk {e.risk_score}" for e in top]
+    evidence = [EvidenceItem(label=e.title, ref_type="event", ref_id=e.id) for e in top]
+    return drivers, evidence
+
+
+def _country_scoped_answer(db: Session, country_code: str) -> IntelligenceResponse:
+    risk = query_service.country_risk(db, country_code)
+    events = query_service.list_events(db, country_code=country_code, limit=10)
+    if not risk:
+        return IntelligenceResponse(
+            assessment=(
+                f"No tracked events are currently associated with that country in the live dataset — "
+                f"either it's genuinely quiet right now, or it's outside the current demo coverage."
+            ),
+            current_risk_level="MINIMAL", primary_drivers=[], potential_impact=[], key_evidence=[],
+            confidence=30.0, tool_calls_made=["get_country_risk"],
+        )
+    drivers, evidence = _drivers_and_evidence(events)
+    impact = [
+        ImpactRow(domain=label, level="HIGH" if risk[key] >= 61 else "MEDIUM" if risk[key] >= 41 else "LOW")
+        for key, label in [("geopolitical", "Geopolitical"), ("economic", "Economic"), ("infrastructure", "Infrastructure")]
+    ]
+    return IntelligenceResponse(
+        assessment=(
+            f"{risk['country']} currently has a national risk score of {risk['national_risk']}/100 "
+            f"({risk['severity_level']}) across {risk['active_events']} active tracked event(s). "
+            f"This is a rule-based summary built directly from live dashboard data, not natural-language analysis."
+        ),
+        current_risk_level=risk["severity_level"],
+        primary_drivers=drivers or ["No significant active events currently tracked for this country."],
+        potential_impact=impact, key_evidence=evidence,
+        confidence=70.0 if events else 40.0,
+        tool_calls_made=["get_country_risk", "get_active_events"],
+    )
+
+
+def _region_scoped_answer(db: Session, region: str) -> IntelligenceResponse:
+    regions = query_service.regional_risk_table(db)
+    entry = next((r for r in regions if r["region"] == region), None)
+    events = query_service.list_events(db, region=region, limit=10)
+    drivers, evidence = _drivers_and_evidence(events)
+    impact = [
+        ImpactRow(domain=r["region"], level="HIGH" if r["risk_score"] >= 61 else "MEDIUM" if r["risk_score"] >= 41 else "LOW")
+        for r in regions if r["region"] != region
+    ][:4]
+    risk_score = entry["risk_score"] if entry else 0.0
+    return IntelligenceResponse(
+        assessment=(
+            f"{region} currently shows a regional risk score of {risk_score}/100 "
+            f"({entry['severity_level'] if entry else 'MINIMAL'}) across {entry['active_events'] if entry else 0} "
+            f"active tracked event(s), most commonly {entry['top_category'].replace('_', ' ').title() if entry and entry['top_category'] else 'mixed categories'}. "
+            f"This is a rule-based summary built directly from live dashboard data, not natural-language analysis."
+        ),
+        current_risk_level=risk_service.severity_level(risk_score).value,
+        primary_drivers=drivers or [f"No significant active events currently tracked in {region}."],
+        potential_impact=impact, key_evidence=evidence,
+        confidence=70.0 if events else 40.0,
+        tool_calls_made=["get_regional_risk", "get_active_events"],
+    )
+
+
+def _category_scoped_answer(db: Session, categories: list[EventCategory]) -> IntelligenceResponse:
+    events: list = []
+    for cat in categories:
+        events.extend(query_service.list_events(db, category=cat.value, limit=10))
+    drivers, evidence = _drivers_and_evidence(events, limit=4)
+    country_risk_by_country: dict[str, float] = {}
+    for e in events:
+        country_risk_by_country[e.country] = max(country_risk_by_country.get(e.country, 0), e.risk_score)
+    impact = [
+        ImpactRow(domain=country, level="HIGH" if score >= 61 else "MEDIUM" if score >= 41 else "LOW")
+        for country, score in sorted(country_risk_by_country.items(), key=lambda kv: -kv[1])[:4]
+    ]
+    label = " / ".join(c.value.replace("_", " ").title() for c in categories)
+    avg_score = round(sum(e.risk_score for e in events) / len(events), 1) if events else 0.0
+    return IntelligenceResponse(
+        assessment=(
+            f"Tracking {len(events)} active event(s) related to {label}, averaging a risk score of {avg_score}/100. "
+            f"This is a rule-based summary built directly from live dashboard data, not natural-language analysis."
+        ),
+        current_risk_level=risk_service.severity_level(avg_score).value,
+        primary_drivers=drivers or [f"No significant active {label} events currently tracked."],
+        potential_impact=impact, key_evidence=evidence,
+        confidence=65.0 if events else 35.0,
+        tool_calls_made=["get_active_events"],
+    )
+
+
+def _global_scoped_answer(db: Session) -> IntelligenceResponse:
     global_risk = query_service.global_risk(db)
     top = query_service.top_developments(db, limit=5)
     regions = query_service.regional_risk_table(db)[:3]
@@ -211,6 +368,23 @@ def _rule_based_fallback(db: Session, question: str) -> IntelligenceResponse:
         confidence=60.0,
         tool_calls_made=["get_active_events", "get_regional_risk"],
     )
+
+
+def _rule_based_fallback(db: Session, question: str) -> IntelligenceResponse:
+    """No LLM key configured — build a grounded, if less fluent, assessment
+    directly from the query layer. Routes on keywords detected in the
+    question (country / region / category) instead of always returning the
+    same global summary, so different questions actually get different,
+    still fully data-grounded, answers.
+    """
+    scope = _detect_scope(question)
+    if scope["country_code"]:
+        return _country_scoped_answer(db, scope["country_code"])
+    if scope["region"]:
+        return _region_scoped_answer(db, scope["region"])
+    if scope["categories"]:
+        return _category_scoped_answer(db, scope["categories"])
+    return _global_scoped_answer(db)
 
 
 async def ask(db: Session, question: str) -> IntelligenceResponse:

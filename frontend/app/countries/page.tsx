@@ -15,6 +15,8 @@ interface CountryRow {
   country_code: string;
   national_risk: number;
   active_events: number;
+  top_category?: string;
+  escalating_count?: number;
 }
 
 export default function CountriesPage() {
@@ -58,6 +60,8 @@ export default function CountriesPage() {
                 countryCode={c.country_code}
                 risk={c.national_risk}
                 activeEvents={c.active_events}
+                topCategory={c.top_category}
+                escalatingCount={c.escalating_count}
               />
             ))}
           </div>

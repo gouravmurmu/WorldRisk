@@ -147,12 +147,23 @@ def list_countries(db: Session) -> list[dict]:
     out = []
     for code, name in codes.items():
         breakdown = risk_service.country_risk_breakdown(events, code)
+        active = [e for e in events if e.country_code == code and e.status != "RESOLVED"]
+
+        top_category = ""
+        if active:
+            counts: dict[str, int] = {}
+            for e in active:
+                counts[e.event_category] = counts.get(e.event_category, 0) + 1
+            top_category = max(counts, key=counts.get)
+
         out.append({
             "country": name,
             "country_code": code,
             "national_risk": breakdown["national_risk"],
             "severity_level": risk_service.severity_level(breakdown["national_risk"]).value,
             "active_events": breakdown["active_events"],
+            "top_category": top_category,
+            "escalating_count": len([e for e in active if e.trend == "ESCALATING"]),
         })
     return sorted(out, key=lambda c: c["national_risk"], reverse=True)
 
@@ -202,41 +213,6 @@ def historical_trend(
 
     rows = q.order_by(RiskSnapshot.timestamp.asc()).all()
     return [{"timestamp": r.timestamp, "value": getattr(r, field)} for r in rows]
-
-
-def relationship_graph(db: Session, limit: int = 25) -> dict:
-    """Node/edge graph for the Intelligence Graph view: the top-N events by
-    risk score plus every relationship where both endpoints are in that set."""
-    top_events = (
-        db.query(CrisisEvent)
-        .filter(CrisisEvent.status != "RESOLVED")
-        .order_by(CrisisEvent.risk_score.desc())
-        .limit(limit)
-        .all()
-    )
-    ids = {e.id for e in top_events}
-    edges = (
-        db.query(EventRelationship)
-        .filter(EventRelationship.source_event_id.in_(ids), EventRelationship.target_event_id.in_(ids))
-        .all()
-    )
-    return {
-        "nodes": [
-            {
-                "id": e.id, "title": e.title, "category": e.event_category,
-                "country": e.country, "risk_score": e.risk_score,
-            }
-            for e in top_events
-        ],
-        "edges": [
-            {
-                "source": rel.source_event_id, "target": rel.target_event_id,
-                "relationship_type": rel.relationship_type, "evidence": rel.evidence,
-                "strength": rel.strength,
-            }
-            for rel in edges
-        ],
-    }
 
 
 def recent_stories(db: Session, category: str | None = None, region: str | None = None, limit: int = 20) -> list[dict]:

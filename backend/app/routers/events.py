@@ -69,11 +69,6 @@ def events_for_map(
                         status=None, time_range=time_range, search=None, limit=2000, db=db)
 
 
-@router.get("/graph/top")
-def get_relationship_graph(limit: int = 25, db: Session = Depends(get_db)):
-    return query_service.relationship_graph(db, limit=limit)
-
-
 @router.get("/{event_id}", response_model=EventOut)
 def get_event(event_id: str, db: Session = Depends(get_db)):
     ev = query_service.get_event(db, event_id)

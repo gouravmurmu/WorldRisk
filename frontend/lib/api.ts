@@ -40,19 +40,16 @@ export const api = {
   eventsForMap: (params: { category?: string; severity?: string; time_range?: string } = {}) =>
     request<import("./types").EventListItem[]>(`/api/events/map${qs(params)}`),
 
-  relationshipGraph: (limit = 25) =>
-    request<{
-      nodes: { id: string; title: string; category: string; country: string; risk_score: number }[];
-      edges: { source: string; target: string; relationship_type: string; evidence: string; strength: number }[];
-    }>(`/api/events/graph/top${qs({ limit })}`),
-
   event: (id: string) => request<import("./types").EventOut>(`/api/events/${id}`),
   eventSources: (id: string) => request<import("./types").EventSourceOut[]>(`/api/events/${id}/sources`),
   eventRelationships: (id: string) => request<import("./types").EventRelationshipOut[]>(`/api/events/${id}/relationships`),
 
   globalRisk: () => request<import("./types").GlobalRiskOut>("/api/risk/global"),
   regionalRisk: () => request<import("./types").RegionRiskOut[]>("/api/risk/regions"),
-  countries: () => request<{ country: string; country_code: string; national_risk: number; severity_level: string; active_events: number }[]>("/api/risk/countries"),
+  countries: () => request<{
+    country: string; country_code: string; national_risk: number; severity_level: string;
+    active_events: number; top_category?: string; escalating_count?: number;
+  }[]>("/api/risk/countries"),
   countryRisk: (code: string) => request<import("./types").CountryRiskOut>(`/api/risk/countries/${code}`),
   topDevelopments: (limit = 6) => request<import("./types").TopDevelopment[]>(`/api/risk/top-developments${qs({ limit })}`),
 
